@@ -9,3 +9,6 @@ all:
 
 clean:
 	rm -f $(OUT)
+
+debug:
+	$(CXX) $(CXXFLAGS) -fsanitize=address,undefined -Iinclude $(SRC) -o $(OUT)

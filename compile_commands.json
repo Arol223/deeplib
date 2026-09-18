@@ -1,0 +1,50 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-c",
+      "-std=c++20",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-o",
+      "deeplib",
+      "src/main.cpp"
+    ],
+    "directory": "/home/arvid_rolander/dev/deeplib",
+    "file": "/home/arvid_rolander/dev/deeplib/src/main.cpp",
+    "output": "/home/arvid_rolander/dev/deeplib/deeplib"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-c",
+      "-std=c++20",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-o",
+      "deeplib",
+      "src/ops.cpp"
+    ],
+    "directory": "/home/arvid_rolander/dev/deeplib",
+    "file": "/home/arvid_rolander/dev/deeplib/src/ops.cpp",
+    "output": "/home/arvid_rolander/dev/deeplib/deeplib"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-c",
+      "-std=c++20",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-o",
+      "deeplib",
+      "src/tensor.cpp"
+    ],
+    "directory": "/home/arvid_rolander/dev/deeplib",
+    "file": "/home/arvid_rolander/dev/deeplib/src/tensor.cpp",
+    "output": "/home/arvid_rolander/dev/deeplib/deeplib"
+  }
+]
