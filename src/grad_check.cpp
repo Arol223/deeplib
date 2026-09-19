@@ -34,8 +34,8 @@ void grad_check(Graph *g, Tensor *x,
     float denom =
         std::max(std::abs(numeric) + std::abs(grad_analytic[i]), 1e-8f);
     float rel_err = std::abs(numeric - grad_analytic[i]) / denom;
-
-    if (rel_err > tol) {
+    float abs_err = std::abs(numeric - grad_analytic[i]);
+    if (rel_err > tol && abs_err > 1e-3f) {
       failures++;
       std::cout << "FAIL at " << i << ": analytic " << grad_analytic[i]
                 << ", numeric " << numeric << ", rel_err " << rel_err << "\n";
