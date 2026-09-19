@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -g
+CXXFLAGS = -std=c++20 -Wall -Wextra -g
 
 SRC = $(wildcard src/*.cpp)
 OUT = deeplib
