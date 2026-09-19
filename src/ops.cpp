@@ -175,4 +175,32 @@ Tensor *sum(Graph *g, Tensor *a) {
   };
   return out;
 }
+
+Tensor *add_bias(Graph *g, Tensor *x, Tensor *b) {
+  assert(x->shape.size() == 2);
+  assert(b->shape.size() == 1);
+  assert(x->shape[1] == b->shape[0]);
+  Tensor *out = g->make(x->shape, b->requires_grad || x->requires_grad);
+
+  // forward pass
+  for (int i = 0; i < x->shape[0]; i++) {
+    for (int j = 0; j < x->shape[1]; j++) {
+      out->at({i, j}) = x->at({i, j}) + b->data[j];
+    }
+  }
+  out->parents = {x, b};
+  out->backward_fn = [x, b, out]() {
+    for (int j = 0; j < x->shape[1]; j++) {
+      float partial_b = 0;
+      for (int i = 0; i < x->shape[0]; i++) {
+        partial_b += out->grad_at({i, j});
+        x->grad_at({i, j}) += out->grad_at({i, j});
+      }
+      b->grad[j] += partial_b;
+    }
+  };
+
+  return out;
+}
+
 } // namespace deeplib

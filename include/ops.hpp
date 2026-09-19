@@ -18,4 +18,6 @@ Tensor *transpose(Graph *g, Tensor *a);
 
 Tensor *sum(Graph *g, Tensor *a);
 
+Tensor *add_bias(Graph *g, Tensor *x, Tensor *b);
+
 } // namespace deeplib
