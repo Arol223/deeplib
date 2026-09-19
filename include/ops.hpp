@@ -1,17 +1,18 @@
 #pragma once
 #include "tensor.hpp"
+#include "graph.hpp"
 
-Tensor* add(Tensor* a, Tensor* b);
+Tensor* add(Graph* g, Tensor* a, Tensor* b);
 
-Tensor* sub(Tensor* a, Tensor* b);
+Tensor* sub(Graph* g, Tensor* a, Tensor* b);
 
-Tensor* mul(Tensor* a, Tensor* b);
+Tensor* mul(Graph* g, Tensor* a, Tensor* b);
 
-Tensor* mul_scalar(Tensor* a, float s);
+Tensor* mul_scalar(Graph* g, Tensor* a, float s);
 
-Tensor* matmul(Tensor* a, Tensor* b);
+Tensor* matmul(Graph* g, Tensor* a, Tensor* b);
 
-Tensor* transpose(Tensor* a);
+Tensor* transpose(Graph* g, Tensor* a);
 
-Tensor* sum(Tensor* a);
+Tensor* sum(Graph* g, Tensor* a);
 

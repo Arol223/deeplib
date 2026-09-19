@@ -2,14 +2,14 @@
 #include "tensor.hpp"
 #include <algorithm>
 #include <cstddef>
-#include <cstdlib>
+#include <cmath>
 #include <iostream>
 
-void grad_check(Tensor *x, std::function<Tensor *(Tensor *)> f, float eps)
+void grad_check(Graph* g, Tensor *x, std::function<Tensor *(Graph*, Tensor *)> f, float eps, float tol)
 {
     x->zero_grad();
 
-    Tensor* loss = f(x);
+    Tensor* loss = f(g, x);
     loss->backward();
     std::vector<float> grad_analytic = x->grad;
     
@@ -19,10 +19,10 @@ void grad_check(Tensor *x, std::function<Tensor *(Tensor *)> f, float eps)
         float orig = x->data[i];
 
         x->data[i] = orig + eps;
-        float l_plus = f(x)->data[0];
+        float l_plus = f(g, x)->data[0];
 
         x->data[i] = orig - eps;
-        float l_minus = f(x)->data[0];
+        float l_minus = f(g, x)->data[0];
 
         x->data[i] = orig;
 
@@ -31,12 +31,14 @@ void grad_check(Tensor *x, std::function<Tensor *(Tensor *)> f, float eps)
         float denom = std::max(std::abs(numeric) + std::abs(grad_analytic[i]), 1e-8f);
         float rel_err = std::abs(numeric - grad_analytic[i]) / denom;
         
-        if (rel_err > 1e-3f){
+        if (rel_err > tol){
             failures++;
             std::cout << "FAIL at " << i << ": analytic " << grad_analytic[i]
             << ", numeric " << numeric << ", rel_err " << rel_err << "\n";
         }
+        g->clear();
     }
+    
     std::cout << (failures ? "FAILED" : "PASSED") << " (" << failures
     << "/" << x->data.size() << " bad)\n";
 
