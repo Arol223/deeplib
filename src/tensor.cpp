@@ -1,10 +1,12 @@
 #include "tensor.hpp"
 #include "utils.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
 #include <cassert>
 #include <random>
 #include <set>
+#include <vector>
 
 
 Tensor::Tensor(std::vector<int> shape, bool requires_grad)
@@ -54,6 +56,12 @@ const float& Tensor::at(const std::vector<int>& idx) const
 int Tensor::size() const
 {
     return product(shape);
+}
+
+float& Tensor::grad_at(const std::vector<int>& idx)
+{
+    int flat = flat_index(idx);
+    return grad[flat];
 }
 
 void Tensor::print() const
@@ -140,7 +148,10 @@ void Tensor::backward()
     }
 }
 
-
+void Tensor::zero_grad()
+{
+    std::fill(grad.begin(), grad.end(), 0.0f);
+}
 
 
 

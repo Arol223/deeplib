@@ -14,8 +14,12 @@ public:
     std::function<void()> backward_fn;
 
     int size() const;
-    float& at(const std::vector<int>& idx);
+
+    float& at(const std::vector<int>& idx); // Nicer indexing into flat vector
     const float& at(const std::vector<int>& idx) const;
+
+    float& grad_at(const std::vector<int>& idx);
+
     void backward();
 
     Tensor(std::vector<int> shape, bool requires_grad = false);
@@ -26,6 +30,8 @@ public:
     void randomize(float lo = -1.0f, float hi = 1.0f);
     
     void reshape(const std::vector<int>& new_shape);
+
+    void zero_grad();
 
 private:
     int flat_index(const std::vector<int>& idx) const;
