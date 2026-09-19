@@ -39,4 +39,7 @@ private:
   int flat_index(const std::vector<int> &idx) const;
   void compute_strides();
 };
+
+void set_seed(unsigned s);
+
 } // namespace deeplib

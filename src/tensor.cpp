@@ -10,6 +10,12 @@
 
 namespace deeplib {
 
+namespace {
+std::mt19937 gen(42);
+}
+
+void set_seed(unsigned s) { gen.seed(s); }
+
 Tensor::Tensor(std::vector<int> shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
   compute_strides();
@@ -87,7 +93,6 @@ void Tensor::fill(float value) {
 }
 
 void Tensor::randomize(float lo, float hi) {
-  static std::mt19937 gen(42);
   std::uniform_real_distribution<float> dist(lo, hi);
   for (size_t i = 0; i < data.size(); i++) {
     data[i] = dist(gen);
