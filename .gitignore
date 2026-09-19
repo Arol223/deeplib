@@ -2,3 +2,4 @@
 .cache/
 .clangd
 deeplib
+run_tests
