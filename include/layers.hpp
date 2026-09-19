@@ -1,4 +1,5 @@
 #pragma once
+#include "activations.hpp"
 #include "graph.hpp"
 #include "tensor.hpp"
 #include <vector>
@@ -42,5 +43,23 @@ public:
 
 private:
   std::vector<Module *> module_list;
+};
+
+class Tanh : public Module {
+public:
+  Tensor *forward(Graph *g, Tensor *x) override { return tanh(g, x); }
+  std::vector<Tensor *> parameters() override { return {}; }
+};
+
+class Relu : public Module {
+public:
+  Tensor *forward(Graph *g, Tensor *x) override { return relu(g, x); }
+  std::vector<Tensor *> parameters() override { return {}; }
+};
+
+class Sigmoid : public Module {
+public:
+  Tensor *forward(Graph *g, Tensor *x) override { return sigmoid(g, x); }
+  std::vector<Tensor *> parameters() override { return {}; }
 };
 } // namespace deeplib
