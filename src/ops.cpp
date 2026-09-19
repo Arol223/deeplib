@@ -129,12 +129,24 @@ Tensor* matmul(Tensor* a, Tensor* b)
     }
 
     out->parents = {a, b};
-
     out->backward_fn = [a, b, out](){
-        for (size_t i = 0; i < out->grad.size(); i++)
-        {
-            a->grad[i] += out->grad[i] * b->data[i];
-            b->grad[i] += out->grad[i] * a->data[i];
+        int m = a->shape[0];
+        int k = a->shape[1];
+        int n = b->shape[1];
+        for (int i = 0; i < m; i++){
+            for (int p = 0; p < k; p++){
+                for (int j = 0; j < n; j++){
+                    a->grad_at({i,p}) += out->grad_at({i,j}) * b->at({p, j});
+                }
+            }
+        }
+
+        for (int p = 0; p < k; p++){
+            for (int j = 0; j < n; j++){
+                for (int i = 0; i < m; i++){
+                    b->grad_at({p,j}) += a->at({i,p}) * out->grad_at({i,j});
+                }
+            }
         }
        
     };
