@@ -1,6 +1,7 @@
 #include "activations.hpp"
 #include "grad_check.hpp"
 #include "graph.hpp"
+#include "layers.hpp"
 #include "losses.hpp"
 #include "ops.hpp"
 #include "tensor.hpp"
@@ -79,5 +80,54 @@ int main() {
   grad_check(&g, t2, [](Graph *gr, Tensor *t) {
     return sum(gr, mul(gr, tanh(gr, t), t));
   });
+
+  // 6. loss functions
+  // a) MSE
+  Tensor *p = new Tensor({3, 4}, true);
+  Tensor *y = new Tensor({3, 4}, false);
+  set_seed(128);
+  p->randomize();
+  y->randomize();
+  grad_check(&g, p, [y](Graph *gr, Tensor *t) { return mse(gr, t, y); });
+
+  // b) softmax-crossentropy
+  Tensor *z = new Tensor({5}, true);
+  z->randomize();
+  Tensor *y_2 = new Tensor({5}, false);
+  y_2->data[2] = 1.0f; // rest are zero from the constructor
+
+  grad_check(&g, z, [y_2](Graph *gr, Tensor *t) {
+    return softmax_cross_entropy(gr, t, y_2);
+  });
+
+  // 7. Add bias
+  Tensor *xb = new Tensor({3, 4}, true); // batch of 3
+  Tensor *bb = new Tensor({4}, true);
+  xb->randomize();
+  bb->randomize();
+
+  grad_check(&g, xb, [bb](Graph *gr, Tensor *t) {
+    return sum(gr, add_bias(gr, t, bb));
+  });
+  grad_check(&g, bb, [xb](Graph *gr, Tensor *t) {
+    return sum(gr, add_bias(gr, xb, t));
+  });
+
+  // 8. Test Linear
+  Linear layer(3, 2);
+
+  Tensor *x2 = new Tensor({1, 3}, false);
+  x2->randomize();
+
+  Tensor *out = layer.forward(&g, x2);
+
+  Tensor *loss = sum(&g, out);
+  loss->backward();
+
+  out->print(); // expect shape (1, 2)
+
+  for (Tensor *p : layer.parameters()) {
+    p->print(); // grads should be non-zero
+  }
   return 0;
 }
