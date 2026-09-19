@@ -1,18 +1,21 @@
 #pragma once
-#include "tensor.hpp"
 #include "graph.hpp"
+#include "tensor.hpp"
 
-Tensor* add(Graph* g, Tensor* a, Tensor* b);
+namespace deeplib {
 
-Tensor* sub(Graph* g, Tensor* a, Tensor* b);
+Tensor *add(Graph *g, Tensor *a, Tensor *b);
 
-Tensor* mul(Graph* g, Tensor* a, Tensor* b);
+Tensor *sub(Graph *g, Tensor *a, Tensor *b);
 
-Tensor* mul_scalar(Graph* g, Tensor* a, float s);
+Tensor *mul(Graph *g, Tensor *a, Tensor *b);
 
-Tensor* matmul(Graph* g, Tensor* a, Tensor* b);
+Tensor *mul_scalar(Graph *g, Tensor *a, float s);
 
-Tensor* transpose(Graph* g, Tensor* a);
+Tensor *matmul(Graph *g, Tensor *a, Tensor *b);
 
-Tensor* sum(Graph* g, Tensor* a);
+Tensor *transpose(Graph *g, Tensor *a);
 
+Tensor *sum(Graph *g, Tensor *a);
+
+} // namespace deeplib
