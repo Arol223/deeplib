@@ -1,11 +1,11 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -O2 -g 
+CXXFLAGS = -std=c++20 -Wall -Wextra -O3 -march=native -g 
 
 SRC = $(wildcard src/*.cpp)
 OUT = deeplib
 
 all:
-	$(CXX) $(CXXFLAGS) -Iinclude $(SRC) -o $(OUT)
+	$(CXX) $(CXXFLAGS) -Iinclude $(SRC) -o $(OUT) -fopt-info-vec 2>&1 | grep ops.cpp
 
 clean:
 	rm -f $(OUT)
