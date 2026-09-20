@@ -5,6 +5,7 @@
 #include "ops.hpp"
 #include "optimizers.hpp"
 #include "tensor.hpp"
+#include <chrono>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -85,7 +86,7 @@ void train_mnist() {
   for (int epoch = 0; epoch < 5; epoch++) {
     std::shuffle(order.begin(), order.end(), rng);
     float epoch_loss = 0.0f;
-
+    auto t0 = std::chrono::steady_clock::now();
     for (int bi = 0; bi < n_batches; bi++) {
       std::vector<int> idx(order.begin() + bi * batch_size,
                            order.begin() + (bi + 1) * batch_size);
@@ -101,9 +102,35 @@ void train_mnist() {
 
       epoch_loss += loss->data[0];
     }
+    auto t1 = std::chrono::steady_clock::now();
+    std::cout << std::chrono::duration<double>(t1 - t0).count() << "s\n";
     std::cout << "Epoch: " << epoch << " Loss: " << epoch_loss / n_batches
               << "\n";
   }
+  Dataset test =
+      load_mnist("data/t10k-images-idx3-ubyte", "data/t10k-labels-idx1-ubyte");
+
+  int correct = 0;
+  for (int bi = 0; bi < test.n / batch_size; bi++) {
+    std::vector<int> idx(batch_size);
+    std::iota(idx.begin(), idx.end(), bi * batch_size);
+    make_batch(test, idx, &x, &y);
+
+    g.clear();
+    Tensor *out = net.forward(&g, &x);
+
+    for (int s = 0; s < batch_size; s++) {
+      int pred = 0;
+      for (int c = 1; c < 10; c++) {
+        if (out->at(s, c) > out->at(s, pred))
+          pred = c;
+      }
+      if (pred == test.labels[idx[s]])
+        correct++;
+    }
+  }
+  std::cout << "test accuracy: "
+            << 100.0 * correct / (test.n / batch_size * batch_size) << "%\n";
 }
 
 int main() {
