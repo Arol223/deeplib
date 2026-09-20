@@ -105,9 +105,9 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
     for (int j = 0; j < out_col; j++) {
       float C_ij = 0;
       for (int p = 0; p < inner; p++) {
-        C_ij += a->at({i, p}) * b->at({p, j});
+        C_ij += a->at(i, p) * b->at(p, j);
       }
-      out->at({i, j}) = C_ij;
+      out->at(i, j) = C_ij;
     }
   }
 
@@ -119,7 +119,7 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
     for (int i = 0; i < m; i++) {
       for (int p = 0; p < k; p++) {
         for (int j = 0; j < n; j++) {
-          a->grad_at({i, p}) += out->grad_at({i, j}) * b->at({p, j});
+          a->grad_at(i, p) += out->grad_at(i, j) * b->at(p, j);
         }
       }
     }
@@ -127,7 +127,7 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
     for (int p = 0; p < k; p++) {
       for (int j = 0; j < n; j++) {
         for (int i = 0; i < m; i++) {
-          b->grad_at({p, j}) += a->at({i, p}) * out->grad_at({i, j});
+          b->grad_at(p, j) += a->at(i, p) * out->grad_at(i, j);
         }
       }
     }
@@ -145,14 +145,14 @@ Tensor *transpose(Graph *g, Tensor *a) {
   Tensor *out = g->make({out_rows, out_cols}, requires_grad);
   for (int i = 0; i < out_rows; i++) {
     for (int j = 0; j < out_cols; j++) {
-      out->at({i, j}) = a->at({j, i});
+      out->at(i, j) = a->at(j, i);
     }
   }
   out->parents = {a};
   out->backward_fn = [a, out]() {
     for (int i = 0; i < a->shape[0]; i++) {
       for (int j = 0; j < a->shape[1]; j++) {
-        a->grad_at({i, j}) += out->grad_at({j, i});
+        a->grad_at(i, j) += out->grad_at(j, i);
       }
     }
   };
@@ -185,7 +185,7 @@ Tensor *add_bias(Graph *g, Tensor *x, Tensor *b) {
   // forward pass
   for (int i = 0; i < x->shape[0]; i++) {
     for (int j = 0; j < x->shape[1]; j++) {
-      out->at({i, j}) = x->at({i, j}) + b->data[j];
+      out->at(i, j) = x->at(i, j) + b->data[j];
     }
   }
   out->parents = {x, b};
@@ -193,8 +193,8 @@ Tensor *add_bias(Graph *g, Tensor *x, Tensor *b) {
     for (int j = 0; j < x->shape[1]; j++) {
       float partial_b = 0;
       for (int i = 0; i < x->shape[0]; i++) {
-        partial_b += out->grad_at({i, j});
-        x->grad_at({i, j}) += out->grad_at({i, j});
+        partial_b += out->grad_at(i, j);
+        x->grad_at(i, j) += out->grad_at(i, j);
       }
       b->grad[j] += partial_b;
     }

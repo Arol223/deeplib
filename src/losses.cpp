@@ -51,7 +51,7 @@ Tensor *softmax_cross_entropy(Graph *g, Tensor *logits, Tensor *target) {
     float partition = 0.0f; // softmax partition function
 
     for (int i = 0; i < n; i++) {
-      p[s * n + i] = std::exp(logits->at({s, i}) - m);
+      p[s * n + i] = std::exp(logits->at(s, i) - m);
       partition += p[s * n + i];
     }
     for (int i = 0; i < n; i++) {
@@ -60,7 +60,7 @@ Tensor *softmax_cross_entropy(Graph *g, Tensor *logits, Tensor *target) {
     float log_partition = std::log(partition);
     float tot = 0;
     for (int i = 0; i < n; i++) {
-      tot -= target->at({s, i}) * (logits->at({s, i}) - m - log_partition);
+      tot -= target->at(s, i) * (logits->at(s, i) - m - log_partition);
     }
     out->data[0] += tot;
   }
@@ -71,8 +71,8 @@ Tensor *softmax_cross_entropy(Graph *g, Tensor *logits, Tensor *target) {
     const float scale = 1.0f / b;
     for (int s = 0; s < b; s++) {
       for (int i = 0; i < n; i++) {
-        logits->grad_at({s, i}) +=
-            out->grad[0] * scale * (p[s * n + i] - target->at({s, i}));
+        logits->grad_at(s, i) +=
+            out->grad[0] * scale * (p[s * n + i] - target->at(s, i));
       }
     }
   };
