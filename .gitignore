@@ -4,3 +4,4 @@
 .clang-format
 deeplib
 run_tests
+data/
