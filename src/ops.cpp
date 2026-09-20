@@ -102,12 +102,14 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
   Tensor *out = g->make({a->shape[0], b->shape[1]}, requires_grad);
 
   for (int i = 0; i < out_row; i++) {
-    for (int j = 0; j < out_col; j++) {
-      float C_ij = 0;
-      for (int p = 0; p < inner; p++) {
-        C_ij += a->at(i, p) * b->at(p, j);
+    float *__restrict out_row = out->data.data() + i * out->strides[0];
+    for (int p = 0; p < inner; p++) {
+      const float a_ip = a->at(i, p);
+      const float *__restrict b_row = b->data.data() + p * b->strides[0];
+#pragma GCC ivdep
+      for (int j = 0; j < out_col; j++) {
+        out_row[j] += a_ip * b_row[j];
       }
-      out->at(i, j) = C_ij;
     }
   }
 
@@ -117,17 +119,26 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
     int k = a->shape[1];
     int n = b->shape[1];
     for (int i = 0; i < m; i++) {
+      const float *__restrict g_row = out->grad.data() + i * out->strides[0];
       for (int p = 0; p < k; p++) {
+        float acc = 0.0f;
+        const float *__restrict b_row = b->data.data() + p * b->strides[0];
+#pragma GCC ivdep
         for (int j = 0; j < n; j++) {
-          a->grad_at(i, p) += out->grad_at(i, j) * b->at(p, j);
+          acc += g_row[j] * b_row[j];
         }
+        a->grad_at(i, p) += acc;
       }
     }
 
-    for (int p = 0; p < k; p++) {
-      for (int j = 0; j < n; j++) {
-        for (int i = 0; i < m; i++) {
-          b->grad_at(p, j) += a->at(i, p) * out->grad_at(i, j);
+    for (int i = 0; i < m; i++) {
+      const float *__restrict grad_row = out->grad.data() + i * out->strides[0];
+      for (int p = 0; p < k; p++) {
+        const float a_ip = a->at(i, p);
+        float *__restrict bg_row = b->grad.data() + p * b->strides[0];
+#pragma GCC ivdep
+        for (int j = 0; j < n; j++) {
+          bg_row[j] += a_ip * grad_row[j];
         }
       }
     }
