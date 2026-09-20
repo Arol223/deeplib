@@ -1,13 +1,16 @@
 #include "activations.hpp"
+#include "dataset.hpp"
 #include "grad_check.hpp"
 #include "graph.hpp"
 #include "layers.hpp"
 #include "losses.hpp"
 #include "ops.hpp"
 #include "tensor.hpp"
+#include <iostream>
 
 using namespace deeplib;
-int main() {
+
+void test_ops() {
 
   // 0. Create randomly initialized tensors x, b and graph g
   Tensor *x = new Tensor({3, 4}, true);
@@ -53,6 +56,22 @@ int main() {
   grad_check(&g, T,
              [](Graph *gr, Tensor *t) { return sum(gr, transpose(gr, t)); });
 
+  // 7. Add bias
+  Tensor *xb = new Tensor({3, 4}, true); // batch of 3
+  Tensor *bb = new Tensor({4}, true);
+  xb->randomize();
+  bb->randomize();
+
+  grad_check(&g, xb, [bb](Graph *gr, Tensor *t) {
+    return sum(gr, add_bias(gr, t, bb));
+  });
+  grad_check(&g, bb, [xb](Graph *gr, Tensor *t) {
+    return sum(gr, add_bias(gr, xb, t));
+  });
+}
+
+void test_activations() {
+  Graph g;
   // 5. activations — fresh tensors each, so no zero_grad needed
   Tensor *r = new Tensor({3, 4}, true);
   r->randomize();
@@ -80,9 +99,12 @@ int main() {
   grad_check(&g, t2, [](Graph *gr, Tensor *t) {
     return sum(gr, mul(gr, tanh(gr, t), t));
   });
+}
 
+void test_losses() {
   // 6. loss functions
   // a) MSE
+  Graph g;
   Tensor *p = new Tensor({3, 4}, true);
   Tensor *y = new Tensor({3, 4}, false);
   set_seed(128);
@@ -91,28 +113,29 @@ int main() {
   grad_check(&g, p, [y](Graph *gr, Tensor *t) { return mse(gr, t, y); });
 
   // b) softmax-crossentropy
-  Tensor *z = new Tensor({5}, true);
+  Tensor *z = new Tensor({1, 5}, true);
   z->randomize();
-  Tensor *y_2 = new Tensor({5}, false);
+  Tensor *y_2 = new Tensor({1, 5}, false);
   y_2->data[2] = 1.0f; // rest are zero from the constructor
 
   grad_check(&g, z, [y_2](Graph *gr, Tensor *t) {
     return softmax_cross_entropy(gr, t, y_2);
   });
 
-  // 7. Add bias
-  Tensor *xb = new Tensor({3, 4}, true); // batch of 3
-  Tensor *bb = new Tensor({4}, true);
-  xb->randomize();
-  bb->randomize();
+  Tensor *z_nd = new Tensor({3, 4}, true);
+  z_nd->randomize();
+  Tensor *yd = new Tensor({3, 4}, false);
+  yd->at({0, 1}) = 1.0f;
+  yd->at({1, 3}) = 1.0f;
+  yd->at({2, 0}) = 1.0f;
 
-  grad_check(&g, xb, [bb](Graph *gr, Tensor *t) {
-    return sum(gr, add_bias(gr, t, bb));
+  grad_check(&g, z_nd, [yd](Graph *gr, Tensor *t) {
+    return softmax_cross_entropy(gr, t, yd);
   });
-  grad_check(&g, bb, [xb](Graph *gr, Tensor *t) {
-    return sum(gr, add_bias(gr, xb, t));
-  });
+}
 
+void test_layers() {
+  Graph g;
   // 8. Test Linear
   Linear layer(3, 2);
 
@@ -129,5 +152,26 @@ int main() {
   for (Tensor *p : layer.parameters()) {
     p->print(); // grads should be non-zero
   }
+}
+
+void test_mnist() {
+  try {
+    Dataset train = load_mnist("data/train-images-idx3-ubyte",
+                               "data/train-labels-idx1-ubyte");
+    std::cout << "n=" << train.n << " image_size=" << train.n_features
+              << " first_label=" << train.labels[0] << "\n";
+    print_ascii(train, 0);
+  } catch (const std::exception &e) {
+    std::cerr << "MNIST test skipped: " << e.what() << "\n";
+  }
+}
+
+int main() {
+  test_ops();         // add, matmul, transpose, add_bias
+  test_activations(); // relu, sigmoid, tanh, composed
+  test_losses();      // mse, softmax_cross_entropy
+  test_layers();      // Linear
+  test_mnist();
+
   return 0;
 }
