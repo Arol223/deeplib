@@ -19,6 +19,11 @@ public:
 
   float &at(const std::vector<int> &idx); // Nicer indexing into flat vector
   const float &at(const std::vector<int> &idx) const;
+  float &at(int i, int j) { return data[i * strides[0] + j * strides[1]]; }
+  const float &at(int i, int j) const {
+    return data[i * strides[0] + j * strides[1]];
+  }
+  float &grad_at(int i, int j) { return grad[i * strides[0] + j * strides[1]]; }
 
   float &grad_at(const std::vector<int> &idx);
 
