@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <iterator>
+#include <vector>
 
 namespace deeplib {
 
@@ -33,35 +34,46 @@ Tensor *mse(Graph *g, Tensor *pred, Tensor *target) {
 
 Tensor *softmax_cross_entropy(Graph *g, Tensor *logits, Tensor *target) {
   assert(logits->data.size() == target->data.size());
+  assert(logits->shape.size() == 2);
+  assert(logits->shape == target->shape);
 
   Tensor *out = g->make({1}, logits->requires_grad);
-
+  out->data[0] = 0.0f;
   // Forward pass
-  int n = std::ssize(logits->data);
-  std::vector<float> p(n);
-  float m = *std::max_element(logits->data.begin(), logits->data.end());
+  int b = logits->shape[0]; // batch size
+  int n = logits->shape[1]; // n_logits
 
-  float partition = 0.0f;
+  std::vector<float> p(n * b); // probabilities
+  for (int s = 0; s < b; s++) {
+    float m = *std::max_element(logits->data.begin() + s * n, // max logit
+                                logits->data.begin() + (s + 1) * n);
 
-  for (int i = 0; i < n; i++) {
-    p[i] = std::exp(logits->data[i] - m);
-    partition += p[i];
-  }
-  for (int i = 0; i < n; i++) {
-    p[i] /= partition;
-  }
-  float log_partition = std::log(partition);
-  float tot = 0;
-  for (int i = 0; i < n; i++) {
-    tot -= target->data[i] * (logits->data[i] - m - log_partition);
-  }
-  out->data[0] = tot;
+    float partition = 0.0f; // softmax partition function
 
+    for (int i = 0; i < n; i++) {
+      p[s * n + i] = std::exp(logits->at({s, i}) - m);
+      partition += p[s * n + i];
+    }
+    for (int i = 0; i < n; i++) {
+      p[s * n + i] /= partition;
+    }
+    float log_partition = std::log(partition);
+    float tot = 0;
+    for (int i = 0; i < n; i++) {
+      tot -= target->at({s, i}) * (logits->at({s, i}) - m - log_partition);
+    }
+    out->data[0] += tot;
+  }
+  out->data[0] /= b;
   // Backward pass
   out->parents = {logits};
-  out->backward_fn = [logits, target, out, p, n]() {
-    for (int i = 0; i < n; i++) {
-      logits->grad[i] += out->grad[0] * (p[i] - target->data[i]);
+  out->backward_fn = [logits, target, out, p, b, n]() {
+    const float scale = 1.0f / b;
+    for (int s = 0; s < b; s++) {
+      for (int i = 0; i < n; i++) {
+        logits->grad_at({s, i}) +=
+            out->grad[0] * scale * (p[s * n + i] - target->at({s, i}));
+      }
     }
   };
 
