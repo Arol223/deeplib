@@ -5,3 +5,4 @@
 deeplib
 run_tests
 data/
+perf*
