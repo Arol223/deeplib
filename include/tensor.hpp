@@ -17,12 +17,28 @@ public:
 
   int size() const;
 
+  // 2D indexing
   float &at(const std::vector<int> &idx); // Nicer indexing into flat vector
   const float &at(const std::vector<int> &idx) const;
   float &at(int i, int j) { return data[i * strides[0] + j * strides[1]]; }
   const float &at(int i, int j) const {
     return data[i * strides[0] + j * strides[1]];
   }
+
+  // 4D indexing, ready for conv2d
+  float &at(int n, int c, int h, int w) {
+    return data[n * strides[0] + c * strides[1] + h * strides[2] +
+                w * strides[3]];
+  }
+  const float &at(int n, int c, int h, int w) const {
+    return data[n * strides[0] + c * strides[1] + h * strides[2] +
+                w * strides[3]];
+  }
+  float &grad_at(int n, int c, int h, int w) {
+    return grad[n * strides[0] + c * strides[1] + h * strides[2] +
+                w * strides[3]];
+  }
+
   float &grad_at(int i, int j) { return grad[i * strides[0] + j * strides[1]]; }
 
   float &grad_at(const std::vector<int> &idx);

@@ -214,4 +214,76 @@ Tensor *add_bias(Graph *g, Tensor *x, Tensor *b) {
   return out;
 }
 
+Tensor *flatten(Graph *g, Tensor *x) {
+  int bs = x->shape[0];
+  int flat_size = x->size() / bs;
+  int batch_stride = x->strides[0];
+  Tensor *out = g->make({bs, flat_size}, x->requires_grad);
+  for (int b = 0; b < bs; b++) {
+    for (int i = 0; i < flat_size; i++) {
+      out->at(b, i) = x->data[b * batch_stride + i];
+    }
+  }
+  out->parents = {x};
+  out->backward_fn = [x, out, bs, flat_size, batch_stride]() {
+    for (int b = 0; b < bs; b++) {
+      for (int i = 0; i < flat_size; i++) {
+        x->grad[b * batch_stride + i] += out->grad_at(b, i);
+      }
+    }
+  };
+
+  return out;
+}
+
+Tensor *conv2d(Graph *g, Tensor *x, Tensor *k) {
+  assert(x->shape.size() == 4);
+  assert(k->shape.size() == 4);
+  assert(x->shape[0] == 1);
+  // assert(x->shape[1] == 1);
+  assert(k->shape[0] == 1);
+  // assert(k->shape[1] == 1);
+
+  int H = x->shape[2];
+  int W = x->shape[3];
+  int Kh = k->shape[2];
+  int Kw = k->shape[3];
+  int Oh = H - Kh + 1;
+  int Ow = W - Kw + 1;
+  Tensor *out = g->make({1, 1, Oh, Ow}, x->requires_grad || k->requires_grad);
+
+  // Forward pass
+  for ()
+    for (int i = 0; i < Oh; i++) {
+      for (int j = 0; j < Ow; j++) {
+        float tot = 0.0f;
+        for (int u = 0; u < Kh; u++) {
+          for (int v = 0; v < Kw; v++) {
+            tot += x->at(0, 0, i + u, j + v) * k->at(0, 0, u, v);
+          }
+        }
+        out->at(0, 0, i, j) = tot;
+      }
+    }
+
+  // Backward pass
+  out->parents = {x, k};
+  out->backward_fn = [x, k, out, Kh, Kw, Oh, Ow]() {
+    for (int i = 0; i < Oh; i++) {
+      for (int j = 0; j < Ow; j++) {
+        for (int u = 0; u < Kh; u++) {
+          for (int v = 0; v < Kw; v++) {
+            k->grad_at(0, 0, u, v) +=
+                out->grad_at(0, 0, i, j) * x->at(0, 0, i + u, j + v);
+            x->grad_at(0, 0, i + u, j + v) +=
+                out->grad_at(0, 0, i, j) * k->at(0, 0, u, v);
+          }
+        }
+      }
+    }
+  };
+
+  return out;
+}
+
 } // namespace deeplib

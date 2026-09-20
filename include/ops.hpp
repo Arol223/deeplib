@@ -20,4 +20,7 @@ Tensor *sum(Graph *g, Tensor *a);
 
 Tensor *add_bias(Graph *g, Tensor *x, Tensor *b);
 
+Tensor *flatten(Graph *g, Tensor *x);
+
+Tensor *conv2d(Graph *g, Tensor *x, Tensor *k);
 } // namespace deeplib

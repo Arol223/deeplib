@@ -68,6 +68,17 @@ void test_ops() {
   grad_check(&g, bb, [xb](Graph *gr, Tensor *t) {
     return sum(gr, add_bias(gr, xb, t));
   });
+
+  // 8. conv2d
+  Tensor *in = new Tensor({1, 1, 5, 5});
+  Tensor *k = new Tensor({1, 1, 3, 3});
+  in->randomize();
+  k->randomize();
+
+  grad_check(&g, in,
+             [k](Graph *gr, Tensor *t) { return sum(gr, conv2d(gr, t, k)); });
+  grad_check(&g, k,
+             [in](Graph *gr, Tensor *t) { return sum(gr, conv2d(gr, in, t)); });
 }
 
 void test_activations() {
@@ -99,6 +110,19 @@ void test_activations() {
   grad_check(&g, t2, [](Graph *gr, Tensor *t) {
     return sum(gr, mul(gr, tanh(gr, t), t));
   });
+}
+
+void test_conv2d() {
+  std::cout << "Testing conv2d gives expected shape\n";
+  Tensor x({1, 1, 3, 3});
+  for (int i = 0; i < 9; i++)
+    x.data[i] = i + 1; // 1..9
+
+  Tensor k({1, 1, 2, 2});
+  k.fill(1.0f);
+
+  Graph g;
+  conv2d(&g, &x, &k)->print();
 }
 
 void test_losses() {
@@ -167,7 +191,8 @@ void test_mnist() {
 }
 
 int main() {
-  test_ops();         // add, matmul, transpose, add_bias
+  test_ops(); // add, matmul, transpose, add_bias
+  test_conv2d();
   test_activations(); // relu, sigmoid, tanh, composed
   test_losses();      // mse, softmax_cross_entropy
   test_layers();      // Linear
