@@ -22,5 +22,5 @@ Tensor *add_bias(Graph *g, Tensor *x, Tensor *b);
 
 Tensor *flatten(Graph *g, Tensor *x);
 
-Tensor *conv2d(Graph *g, Tensor *x, Tensor *k);
+Tensor *conv2d(Graph *g, Tensor *x, Tensor *k, int stride = 1, int padding = 0);
 } // namespace deeplib

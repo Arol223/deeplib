@@ -236,47 +236,77 @@ Tensor *flatten(Graph *g, Tensor *x) {
   return out;
 }
 
-Tensor *conv2d(Graph *g, Tensor *x, Tensor *k) {
+Tensor *conv2d(Graph *g, Tensor *x, Tensor *k, int stride, int padding) {
   assert(x->shape.size() == 4);
   assert(k->shape.size() == 4);
-  assert(x->shape[0] == 1);
+  // assert(x->shape[0] == 1);
   // assert(x->shape[1] == 1);
-  assert(k->shape[0] == 1);
+  // assert(k->shape[0] == 1);
   // assert(k->shape[1] == 1);
+  assert(x->shape[1] == k->shape[1]);
+  assert(stride >= 1 && padding >= 0);
 
+  int bs = x->shape[0]; // batch size
+  int n_filters = k->shape[0];
   int H = x->shape[2];
   int W = x->shape[3];
   int Kh = k->shape[2];
   int Kw = k->shape[3];
-  int Oh = H - Kh + 1;
-  int Ow = W - Kw + 1;
-  Tensor *out = g->make({1, 1, Oh, Ow}, x->requires_grad || k->requires_grad);
+  assert(H + 2 * padding >= Kh && W + 2 * padding >= Kw);
+  int Oh = (H + 2 * padding - Kh) / stride + 1;
+  int Ow = (W + 2 * padding - Kw) / stride + 1;
+  int n_channels = k->shape[1];
+
+  Tensor *out =
+      g->make({bs, n_filters, Oh, Ow}, x->requires_grad || k->requires_grad);
 
   // Forward pass
-  for ()
-    for (int i = 0; i < Oh; i++) {
-      for (int j = 0; j < Ow; j++) {
-        float tot = 0.0f;
-        for (int u = 0; u < Kh; u++) {
-          for (int v = 0; v < Kw; v++) {
-            tot += x->at(0, 0, i + u, j + v) * k->at(0, 0, u, v);
+  for (int n = 0; n < bs; n++) {
+    for (int f = 0; f < n_filters; f++) {
+      for (int i = 0; i < Oh; i++) {
+        for (int j = 0; j < Ow; j++) {
+          float tot = 0.0f;
+          for (int c = 0; c < n_channels; c++) {
+            for (int u = 0; u < Kh; u++) {
+              int hi = stride * i + u - padding;
+              if (hi < 0 || hi >= H)
+                continue;
+              for (int v = 0; v < Kw; v++) {
+                int wi = stride * j + v - padding;
+                if (wi < 0 || wi >= W)
+                  continue;
+                tot += x->at(n, c, hi, wi) * k->at(f, c, u, v);
+              }
+            }
           }
+          out->at(n, f, i, j) = tot;
         }
-        out->at(0, 0, i, j) = tot;
       }
     }
-
+  }
   // Backward pass
   out->parents = {x, k};
-  out->backward_fn = [x, k, out, Kh, Kw, Oh, Ow]() {
-    for (int i = 0; i < Oh; i++) {
-      for (int j = 0; j < Ow; j++) {
-        for (int u = 0; u < Kh; u++) {
-          for (int v = 0; v < Kw; v++) {
-            k->grad_at(0, 0, u, v) +=
-                out->grad_at(0, 0, i, j) * x->at(0, 0, i + u, j + v);
-            x->grad_at(0, 0, i + u, j + v) +=
-                out->grad_at(0, 0, i, j) * k->at(0, 0, u, v);
+  out->backward_fn = [x, k, n_filters, n_channels, bs, out, Kh, Kw, Oh, Ow,
+                      stride, padding, H, W]() {
+    for (int n = 0; n < bs; n++) {
+      for (int f = 0; f < n_filters; f++) {
+        for (int i = 0; i < Oh; i++) {
+          for (int j = 0; j < Ow; j++) {
+            float out_grad = out->grad_at(n, f, i, j);
+            for (int c = 0; c < n_channels; c++) {
+              for (int u = 0; u < Kh; u++) {
+                int hi = stride * i + u - padding;
+                if (hi < 0 || hi >= H)
+                  continue;
+                for (int v = 0; v < Kw; v++) {
+                  int wi = stride * j + v - padding;
+                  if (wi < 0 || wi >= W)
+                    continue;
+                  k->grad_at(f, c, u, v) += out_grad * x->at(n, c, hi, wi);
+                  x->grad_at(n, c, hi, wi) += out_grad * k->at(f, c, u, v);
+                }
+              }
+            }
           }
         }
       }
