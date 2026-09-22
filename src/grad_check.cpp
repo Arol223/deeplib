@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
-
+#include <limits>
 namespace deeplib {
 
 void grad_check(Graph *g, Tensor *x,
@@ -15,7 +15,10 @@ void grad_check(Graph *g, Tensor *x,
   Tensor *loss = f(g, x);
   loss->backward();
   std::vector<float> grad_analytic = x->grad;
-
+  const float loss_mag = std::abs(loss->data[0]);
+  const float noise =
+      4.0f * loss_mag * std::numeric_limits<float>::epsilon() / eps;
+  const float abs_tol = std::max(1e-3f, noise);
   int failures = 0;
   // numeric grad, [f(x + eps) - f(x - eps)] / 2*eps
   for (size_t i = 0; i < x->data.size(); i++) {
@@ -35,7 +38,7 @@ void grad_check(Graph *g, Tensor *x,
         std::max(std::abs(numeric) + std::abs(grad_analytic[i]), 1e-8f);
     float rel_err = std::abs(numeric - grad_analytic[i]) / denom;
     float abs_err = std::abs(numeric - grad_analytic[i]);
-    if (rel_err > tol && abs_err > 1e-3f) {
+    if (rel_err > tol && abs_err > abs_tol) {
       failures++;
       std::cout << "FAIL at " << i << ": analytic " << grad_analytic[i]
                 << ", numeric " << numeric << ", rel_err " << rel_err << "\n";
