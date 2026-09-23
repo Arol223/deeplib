@@ -53,8 +53,6 @@ const float &Tensor::at(const std::vector<int> &idx) const {
   return data[flat];
 }
 
-int Tensor::size() const { return product(shape); }
-
 float &Tensor::grad_at(const std::vector<int> &idx) {
   int flat = flat_index(idx);
   return grad[flat];

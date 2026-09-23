@@ -1,4 +1,5 @@
 #pragma once
+#include "utils.hpp"
 #include <functional>
 #include <vector>
 
@@ -15,7 +16,7 @@ public:
   std::vector<Tensor *> parents;
   std::function<void()> backward_fn;
 
-  int size() const;
+  int size() const { return product(shape); }
 
   // 2D indexing
   float &at(const std::vector<int> &idx); // Nicer indexing into flat vector
