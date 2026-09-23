@@ -29,6 +29,30 @@ Linear::~Linear() {
 
 std::vector<Tensor *> Linear::parameters() { return {W, b}; }
 
+// --------------- Conv2d ----------------------
+Conv2d::Conv2d(int in_channels, int out_channels, int kh, int kw, int stride,
+               int padding)
+    : stride(stride), padding(padding) {
+  k = new Tensor({out_channels, in_channels, kh, kw}, true);
+  b = new Tensor({out_channels}, true);
+
+  int fan_in = in_channels * kh * kw;
+  float he_bound = std::sqrt(6.0f / fan_in);
+  k->randomize(-he_bound, he_bound);
+  // bias is 0
+}
+
+Tensor *Conv2d::forward(Graph *g, Tensor *x) {
+  return add_channel_bias(g, conv2d_im2col(g, x, k, stride, padding), b);
+}
+
+Conv2d::~Conv2d() {
+  delete k;
+  delete b;
+}
+
+std::vector<Tensor *> Conv2d::parameters() { return {k, b}; }
+
 // --------------- Sequential--------------------
 
 // Constructors

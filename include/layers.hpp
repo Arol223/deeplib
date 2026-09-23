@@ -1,7 +1,9 @@
 #pragma once
 #include "activations.hpp"
 #include "graph.hpp"
+#include "ops.hpp"
 #include "tensor.hpp"
+#include <csignal>
 #include <vector>
 
 namespace deeplib {
@@ -27,6 +29,22 @@ public:
 private:
   Tensor *W; // (in, out)
   Tensor *b; // (out)
+};
+
+class Conv2d : public Module {
+public:
+  Conv2d(int in_channels, int out_channels, int kh, int kw, int stride = 1,
+         int padding = 0);
+  ~Conv2d() override;
+  Tensor *forward(Graph *g, Tensor *x) override;
+  std::vector<Tensor *> parameters() override;
+  Conv2d(const Conv2d &) = delete;
+  Conv2d &operator=(const Conv2d &) = delete;
+
+private:
+  Tensor *k; // (out, in, kh, kw)
+  Tensor *b; // (out)
+  int stride, padding;
 };
 
 class Sequential : public Module {
@@ -61,5 +79,23 @@ class Sigmoid : public Module {
 public:
   Tensor *forward(Graph *g, Tensor *x) override { return sigmoid(g, x); }
   std::vector<Tensor *> parameters() override { return {}; }
+};
+
+class Flatten : public Module {
+public:
+  Tensor *forward(Graph *g, Tensor *x) override { return flatten(g, x); }
+  std::vector<Tensor *> parameters() override { return {}; }
+};
+
+class MaxPool2d : public Module {
+public:
+  MaxPool2d(int kh, int kw, int stride) : kh(kh), kw(kw), stride(stride){};
+  Tensor *forward(Graph *g, Tensor *x) override {
+    return maxpool2d(g, x, kh, kw, stride);
+  }
+  std::vector<Tensor *> parameters() override { return {}; }
+
+private:
+  int kh, kw, stride;
 };
 } // namespace deeplib
