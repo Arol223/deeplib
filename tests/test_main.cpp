@@ -292,6 +292,137 @@ void test_conv2d_stride_padding() {
   }
 }
 
+void test_conv_net() {
+  Sequential net({new Conv2d(1, 4, 3, 3), // (N,1,28,28) -> (N,4,26,26)
+                  new Relu(),
+                  new Flatten(), // -> (N, 2704)
+                  new Linear(4 * 26 * 26, 10)});
+
+  Graph g;
+  Tensor x({2, 1, 28, 28});
+  x.randomize();
+
+  // --- shape and reachability ---
+  Tensor *out = net.forward(&g, &x);
+  std::cout << "conv net output shape: (" << out->shape[0] << ", "
+            << out->shape[1] << ")\n";
+
+  Tensor *loss = sum(&g, out);
+  loss->backward();
+
+  std::vector<Tensor *> params = net.parameters(); // {k, b, W, b}
+  bool reached = false;
+  for (float v : params[0]->grad)
+    if (v != 0.0f)
+      reached = true;
+  std::cout << "gradient reaches conv kernel: "
+            << (reached ? "PASSED" : "FAILED") << "\n";
+
+  // --- gradient check on the conv parameters, through the whole net ---
+  // Weighted loss: a bare sum makes every element of out->grad equal to 1,
+  // which hides any misindexing of the incoming gradient.
+  Tensor wt({2, 10});
+  wt.randomize();
+
+  Tensor *xp = &x;
+  Tensor *wp = &wt;
+  Sequential *netp = &net;
+
+  auto run = [netp, xp, wp](Graph *gr, Tensor *) {
+    return sum(gr, mul(gr, netp->forward(gr, xp), wp));
+  };
+
+  g.clear();
+  grad_check(&g, params[0], run); // conv kernel, 36 elements
+  grad_check(&g, params[1], run); // conv bias, 4 elements
+}
+
+void test_im2col() {
+  // --- 1. Forward, checked against a hand-built expectation ---
+  // N=1, C=2, H=W=3, K=2x2, stride 1, no padding -> cols is 4 x 8.
+  // Channel 0 holds 0..8, channel 1 holds 100..108, so every pixel
+  // is distinguishable and a channel mix-up is obvious.
+  {
+    Tensor x({1, 2, 3, 3});
+    for (int h = 0; h < 3; h++)
+      for (int w = 0; w < 3; w++) {
+        x.at(0, 0, h, w) = h * 3 + w;
+        x.at(0, 1, h, w) = 100 + h * 3 + w;
+      }
+
+    Graph g;
+    Tensor *cols = im2col(&g, &x, 2, 2, 1, 0);
+
+    // Row r = output position (i,j); column q = (c,u,v) channel-major.
+    // Row 0 is the patch anchored at (0,0): channel 0's 2x2 top-left
+    // block, then channel 1's.
+    const float expected[4][8] = {
+        {0, 1, 3, 4, 100, 101, 103, 104}, // (i,j) = (0,0)
+        {1, 2, 4, 5, 101, 102, 104, 105}, // (0,1)
+        {3, 4, 6, 7, 103, 104, 106, 107}, // (1,0)
+        {4, 5, 7, 8, 104, 105, 107, 108}, // (1,1)
+    };
+
+    bool ok = (cols->shape[0] == 4 && cols->shape[1] == 8);
+    if (ok)
+      for (int r = 0; r < 4; r++)
+        for (int q = 0; q < 8; q++)
+          if (cols->at(r, q) != expected[r][q])
+            ok = false;
+
+    std::cout << "im2col forward: " << (ok ? "PASSED" : "FAILED") << "\n";
+    if (!ok)
+      cols->print();
+  }
+
+  // --- 2. Padding puts zeros where the patch hangs off the edge ---
+  {
+    Tensor x({1, 1, 3, 3});
+    x.fill(1.0f);
+
+    Graph g;
+    // K=3x3, padding 1, stride 1 -> Oh=Ow=3, cols is 9 x 9.
+    Tensor *cols = im2col(&g, &x, 3, 3, 1, 1);
+
+    // Row 0 is anchored at output (0,0), so its patch covers input rows
+    // -1..1 and cols -1..1: the top row and left column are padding.
+    // q = u*3 + v, so zeros at q in {0,1,2,3,6} and ones elsewhere.
+    bool ok = (cols->shape[0] == 9 && cols->shape[1] == 9);
+    const float row0[9] = {0, 0, 0, 0, 1, 1, 0, 1, 1};
+    if (ok)
+      for (int q = 0; q < 9; q++)
+        if (cols->at(0, q) != row0[q])
+          ok = false;
+
+    std::cout << "im2col padding: " << (ok ? "PASSED" : "FAILED") << "\n";
+    if (!ok)
+      cols->print();
+  }
+
+  // --- 3. Gradient check (col2im), with stride and padding active ---
+  {
+    const int N = 2, C = 2, H = 5, W = 6, Kh = 3, Kw = 2;
+    constexpr int S = 2, P = 1;
+    const int Oh = (H + 2 * P - Kh) / S + 1; // (5+2-3)/2+1 = 3
+    const int Ow = (W + 2 * P - Kw) / S + 1; // (6+2-2)/2+1 = 4
+
+    Tensor x({N, C, H, W}, true);
+    Tensor wt({N * Oh * Ow, C * Kh * Kw});
+    x.randomize();
+    wt.randomize();
+
+    Graph g;
+    Tensor *wp = &wt;
+    Tensor *xp = &x;
+
+    // Weighted loss: a bare sum makes every incoming gradient 1, which
+    // would hide a misindexed read of out->grad.
+    grad_check(&g, xp, [wp](Graph *gr, Tensor *t) {
+      return sum(gr, mul(gr, im2col(gr, t, Kh, Kw, S, P), wp));
+    });
+  }
+}
+
 void test_losses() {
   // 6. loss functions
   // a) MSE
@@ -357,12 +488,116 @@ void test_mnist() {
   }
 }
 
+void test_maxpool2d() {
+  // --- 1. Forward, hand-checked ---
+  // 1x1x4x4 with distinct values, 2x2 pool stride 2 -> 1x1x2x2.
+  // Each output is the max of its quadrant.
+  {
+    Tensor x({1, 1, 4, 4});
+    const float vals[16] = {1, 5, 2,  0,  4,  3,  8,  7,
+                            9, 6, 11, 10, 12, 15, 13, 14};
+    for (int i = 0; i < 16; i++)
+      x.data[i] = vals[i];
+
+    Graph g;
+    Tensor *out = maxpool2d(&g, &x, 2, 2, 2);
+
+    // quadrant maxima: {1,5,4,3}->5  {2,0,8,7}->8
+    //                  {9,6,12,15}->15  {11,10,13,14}->14
+    bool ok = out->shape[2] == 2 && out->shape[3] == 2;
+    if (ok)
+      ok = out->at(0, 0, 0, 0) == 5 && out->at(0, 0, 0, 1) == 8 &&
+           out->at(0, 0, 1, 0) == 15 && out->at(0, 0, 1, 1) == 14;
+
+    std::cout << "maxpool forward: " << (ok ? "PASSED" : "FAILED") << "\n";
+    if (!ok)
+      out->print();
+  }
+
+  // --- 2. Backward routes gradient only to the winning positions ---
+  {
+    Tensor x({1, 1, 4, 4}, true);
+    const float vals[16] = {1, 5, 2,  0,  4,  3,  8,  7,
+                            9, 6, 11, 10, 12, 15, 13, 14};
+    for (int i = 0; i < 16; i++)
+      x.data[i] = vals[i];
+
+    Graph g;
+    Tensor *loss = sum(&g, maxpool2d(&g, &x, 2, 2, 2));
+    loss->backward();
+
+    // Winners are at flat indices 1 (5), 6 (8), 13 (15), 15 (14).
+    bool ok = true;
+    for (int i = 0; i < 16; i++) {
+      float expect = (i == 1 || i == 6 || i == 13 || i == 15) ? 1.0f : 0.0f;
+      if (x.grad[i] != expect)
+        ok = false;
+    }
+    std::cout << "maxpool backward routing: " << (ok ? "PASSED" : "FAILED")
+              << "\n";
+    if (!ok)
+      x.print();
+  }
+
+  // --- 3. Channels stay independent ---
+  // Pooling is per-channel: channel 1 is channel 0 plus a constant, so
+  // every output should differ by exactly that constant.
+  {
+    Tensor x({2, 2, 4, 5});
+    for (int n = 0; n < 2; n++)
+      for (int h = 0; h < 4; h++)
+        for (int w = 0; w < 5; w++) {
+          float base = (n + 1) * (h * 5 + w);
+          x.at(n, 0, h, w) = base;
+          x.at(n, 1, h, w) = base + 1000.0f;
+        }
+
+    Graph g;
+    Tensor *out = maxpool2d(&g, &x, 2, 2, 2); // -> (2, 2, 2, 2)
+
+    bool ok = out->shape[0] == 2 && out->shape[1] == 2 && out->shape[2] == 2 &&
+              out->shape[3] == 2;
+    if (ok)
+      for (int n = 0; n < 2 && ok; n++)
+        for (int i = 0; i < 2 && ok; i++)
+          for (int j = 0; j < 2; j++)
+            if (out->at(n, 1, i, j) != out->at(n, 0, i, j) + 1000.0f)
+              ok = false;
+
+    std::cout << "maxpool channels/batch: " << (ok ? "PASSED" : "FAILED")
+              << "\n";
+  }
+
+  // --- 4. Gradient check, weighted loss, non-square, stride < kernel ---
+  {
+    const int N = 2, C = 2, H = 6, W = 7, Kh = 3, Kw = 2;
+    constexpr int S = 2;
+    const int Oh = (H - Kh) / S + 1; // 2
+    const int Ow = (W - Kw) / S + 1; // 3
+
+    Tensor x({N, C, H, W}, true);
+    Tensor wt({N, C, Oh, Ow});
+    x.randomize();
+    wt.randomize();
+
+    Graph g;
+    Tensor *xp = &x;
+    Tensor *wp = &wt;
+    grad_check(&g, xp, [wp](Graph *gr, Tensor *t) {
+      return sum(gr, mul(gr, maxpool2d(gr, t, 3, 2, S), wp));
+    });
+  }
+}
+
 int main() {
   test_ops(); // add, matmul, transpose, add_bias
   test_conv2d();
   test_conv2d_channels();
   test_conv2d_batch();
   test_conv2d_stride_padding();
+  test_conv_net();
+  test_im2col();
+  test_maxpool2d();
   test_activations(); // relu, sigmoid, tanh, composed
   test_losses();      // mse, softmax_cross_entropy
   test_layers();      // Linear
