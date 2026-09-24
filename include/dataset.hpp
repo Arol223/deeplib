@@ -17,6 +17,11 @@ struct Dataset {
 Dataset load_mnist(const std::string &image_path,
                    const std::string &label_path);
 
+Dataset load_cifar10(const std::string &path, const bool test = false);
+
+void standardize(Dataset &ds, std::array<float, 3> &mean,
+                 std::array<float, 3> &std_dev, bool compute);
+
 void print_ascii(const Dataset &ds, int idx);
 
 void make_batch(const Dataset &ds, const std::vector<int> &indices,

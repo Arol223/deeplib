@@ -1,14 +1,18 @@
 #include "dataset.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <string>
 #include <vector>
+namespace fs = std::filesystem;
 
 namespace deeplib {
 
@@ -107,6 +111,91 @@ void print_ascii(const Dataset &ds, int idx) {
   }
 }
 
+Dataset load_cifar10(const std::string &dir_path, const bool test) {
+  const int n_features = 3072;
+  const int record = 1 + n_features; // label byte plus pixels
+  std::vector<std::string> batch_names;
+
+  if (test) {
+    batch_names.push_back((fs::path(dir_path) / "test_batch.bin").string());
+  } else {
+    for (int i = 1; i <= 5; i++) {
+      fs::path p =
+          fs::path(dir_path) / ("data_batch_" + std::to_string(i) + ".bin");
+      batch_names.push_back(p.string());
+    }
+  }
+
+  Dataset ds;
+  ds.rows = 32;
+  ds.cols = 32;
+  ds.n_features = n_features;
+  ds.n = 0;
+
+  if (!test) {
+    ds.images.reserve(50000 * n_features);
+    ds.labels.reserve(50000);
+  } else {
+    ds.images.reserve(10000 * n_features);
+    ds.labels.reserve(10000);
+  }
+
+  for (const std::string &path : batch_names) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+      throw std::runtime_error("Could not open " + path);
+    std::vector<uint8_t> raw((std::istreambuf_iterator<char>(f)),
+                             std::istreambuf_iterator<char>());
+
+    if (raw.size() % record != 0)
+      throw std::runtime_error("Unexpected size for " + path);
+    int n_records = raw.size() / record;
+    ds.n += n_records;
+    for (int i = 0; i < n_records; i++) {
+      const int base = i * record;
+      ds.labels.push_back(raw[base]);
+      for (int j = 0; j < n_features; j++) {
+        ds.images.push_back(raw[base + 1 + j] / 255.0f);
+      }
+    }
+  }
+
+  return ds;
+}
+
+void standardize(Dataset &ds, std::array<float, 3> &mean,
+                 std::array<float, 3> &std_dev, bool compute) {
+  const int per_channel = ds.n_features / 3;
+  if (compute) {
+    for (int c = 0; c < 3; c++) {
+      double sum = 0.0, sumsq = 0.0;
+      for (int i = 0; i < ds.n; i++) {
+        const int base = i * ds.n_features + c * per_channel;
+        for (int j = 0; j < per_channel; j++) {
+          float v = ds.images[base + j];
+          sum += v;
+          sumsq += v * v;
+        }
+      }
+      double count = static_cast<double>(ds.n) * per_channel;
+      mean[c] = sum / count;
+      std_dev[c] = std::sqrt(sumsq / count - mean[c] * mean[c]);
+    }
+  }
+
+  for (int c = 0; c < 3; c++) {
+    std::cout << "c=" << c << " mean=" << mean[c] << " std=" << std_dev[c]
+              << "\n";
+    assert(std_dev[c] > 1e-8f);
+    const float inv = 1.0f / std_dev[c];
+    for (int i = 0; i < ds.n; i++) {
+      const int base = i * ds.n_features + c * per_channel;
+      for (int j = 0; j < per_channel; j++) {
+        ds.images[base + j] = (ds.images[base + j] - mean[c]) * inv;
+      }
+    }
+  }
+}
 void make_batch(const Dataset &ds, const std::vector<int> &indices,
                 Tensor *x_out, Tensor *y_out) {
   assert(x_out->shape[0] == std::ssize(indices));

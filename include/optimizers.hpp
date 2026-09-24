@@ -28,4 +28,17 @@ private:
   float lr;
 };
 
+class SGDMomentum : public Optimizer {
+public:
+  SGDMomentum(std::vector<Tensor *> params, float lr, float momentum = 0.9f)
+      : Optimizer(params), lr(lr), momentum(momentum) {
+    for (Tensor *p : params)
+      velocity.emplace_back(p->data.size(), 0.0f);
+  }
+  void step() override;
+
+private:
+  float lr, momentum;
+  std::vector<std::vector<float>> velocity;
+};
 } // namespace deeplib
