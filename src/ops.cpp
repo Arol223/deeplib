@@ -2,6 +2,7 @@
 #include "graph.hpp"
 #include "tensor.hpp"
 #include "utils.hpp"
+#include <Eigen/Dense>
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -92,7 +93,7 @@ Tensor *mul_scalar(Graph *g, Tensor *a, float s) {
   return out;
 }
 
-Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
+Tensor *matmul(Graph *g, Tensor *a, Tensor *b, bool eigen) {
   assert(a->shape.size() == 2);
   assert(b->shape.size() == 2);
   assert(a->shape[1] == b->shape[0]);
@@ -103,49 +104,76 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b) {
   const int inner = a->shape[1];
 
   Tensor *out = g->make({a->shape[0], b->shape[1]}, requires_grad);
-
-  for (int i = 0; i < out_row; i++) {
-    float *__restrict out_row = out->data.data() + i * out->strides[0];
-    for (int p = 0; p < inner; p++) {
-      const float a_ip = a->at(i, p);
-      const float *__restrict b_row = b->data.data() + p * b->strides[0];
-#pragma GCC ivdep
-      for (int j = 0; j < out_col; j++) {
-        out_row[j] += a_ip * b_row[j];
-      }
-    }
-  }
-
-  out->parents = {a, b};
-  out->backward_fn = [a, b, out]() {
-    int m = a->shape[0];
-    int k = a->shape[1];
-    int n = b->shape[1];
-    for (int i = 0; i < m; i++) {
-      const float *__restrict g_row = out->grad.data() + i * out->strides[0];
-      for (int p = 0; p < k; p++) {
-        float acc = 0.0f;
+  if (!eigen) {
+    for (int i = 0; i < out_row; i++) {
+      float *__restrict out_row = out->data.data() + i * out->strides[0];
+      for (int p = 0; p < inner; p++) {
+        const float a_ip = a->at(i, p);
         const float *__restrict b_row = b->data.data() + p * b->strides[0];
 #pragma GCC ivdep
-        for (int j = 0; j < n; j++) {
-          acc += g_row[j] * b_row[j];
+        for (int j = 0; j < out_col; j++) {
+          out_row[j] += a_ip * b_row[j];
         }
-        a->grad_at(i, p) += acc;
       }
     }
 
-    for (int i = 0; i < m; i++) {
-      const float *__restrict grad_row = out->grad.data() + i * out->strides[0];
-      for (int p = 0; p < k; p++) {
-        const float a_ip = a->at(i, p);
-        float *__restrict bg_row = b->grad.data() + p * b->strides[0];
+    out->parents = {a, b};
+    out->backward_fn = [a, b, out]() {
+      int m = a->shape[0];
+      int k = a->shape[1];
+      int n = b->shape[1];
+      for (int i = 0; i < m; i++) {
+        const float *__restrict g_row = out->grad.data() + i * out->strides[0];
+        for (int p = 0; p < k; p++) {
+          float acc = 0.0f;
+          const float *__restrict b_row = b->data.data() + p * b->strides[0];
 #pragma GCC ivdep
-        for (int j = 0; j < n; j++) {
-          bg_row[j] += a_ip * grad_row[j];
+          for (int j = 0; j < n; j++) {
+            acc += g_row[j] * b_row[j];
+          }
+          a->grad_at(i, p) += acc;
         }
       }
-    }
-  };
+
+      for (int i = 0; i < m; i++) {
+        const float *__restrict grad_row =
+            out->grad.data() + i * out->strides[0];
+        for (int p = 0; p < k; p++) {
+          const float a_ip = a->at(i, p);
+          float *__restrict bg_row = b->grad.data() + p * b->strides[0];
+#pragma GCC ivdep
+          for (int j = 0; j < n; j++) {
+            bg_row[j] += a_ip * grad_row[j];
+          }
+        }
+      }
+    };
+  } else {
+    using RowMajorMat =
+        Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+    Eigen::Map<const RowMajorMat> A(a->data.data(), out_row, inner);
+    Eigen::Map<const RowMajorMat> B(b->data.data(), inner, out_col);
+    Eigen::Map<RowMajorMat> C(out->data.data(), out_row, out_col);
+
+    C.noalias() = A * B;
+
+    out->parents = {a, b};
+    out->backward_fn = [a, b, out]() {
+      using RowMajorMat =
+          Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+      int m = a->shape[0];
+      int k = a->shape[1];
+      int n = b->shape[1];
+      Eigen::Map<const RowMajorMat> A(a->data.data(), m, k);
+      Eigen::Map<const RowMajorMat> B(b->data.data(), k, n);
+      Eigen::Map<const RowMajorMat> dC(out->grad.data(), m, n);
+      Eigen::Map<RowMajorMat> dA(a->grad.data(), m, k);
+      dA.noalias() += dC * B.transpose();
+
+      Eigen::Map<RowMajorMat> dB(b->grad.data(), k, n);
+      dB.noalias() += A.transpose() * dC;
+    };
+  }
 
   return out;
 }

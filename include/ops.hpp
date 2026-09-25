@@ -13,7 +13,7 @@ Tensor *mul(Graph *g, Tensor *a, Tensor *b);
 
 Tensor *mul_scalar(Graph *g, Tensor *a, float s);
 
-Tensor *matmul(Graph *g, Tensor *a, Tensor *b);
+Tensor *matmul(Graph *g, Tensor *a, Tensor *b, bool eigen = true);
 
 Tensor *transpose(Graph *g, Tensor *a);
 

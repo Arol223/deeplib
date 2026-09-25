@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -O3 -march=native -g 
+CXXFLAGS = -std=c++20 -Wall -Wextra -O3 -march=native -g -I/usr/include/eigen3
 
 SRC = $(wildcard src/*.cpp)
 OUT = deeplib

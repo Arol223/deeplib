@@ -1,5 +1,6 @@
 #pragma once
 #include "tensor.hpp"
+#include <iostream>
 #include <vector>
 
 namespace deeplib {
@@ -14,6 +15,9 @@ public:
     for (Tensor *p : params)
       p->zero_grad();
   }
+
+  virtual void save_state(std::ostream &) {}
+  virtual void load_state(std::istream &) {}
 
 protected:
   std::vector<Tensor *> params;
@@ -36,6 +40,8 @@ public:
       velocity.emplace_back(p->data.size(), 0.0f);
   }
   void step() override;
+  void save_state(std::ostream &) override;
+  void load_state(std::istream &) override;
 
 private:
   float lr, momentum;

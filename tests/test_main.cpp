@@ -5,8 +5,14 @@
 #include "layers.hpp"
 #include "losses.hpp"
 #include "ops.hpp"
+#include "optimizers.hpp"
 #include "tensor.hpp"
+#include <cstddef>
 #include <iostream>
+#include <random>
+#include <sstream>
+#include <stdexcept>
+#include <vector>
 
 using namespace deeplib;
 
@@ -589,6 +595,162 @@ void test_maxpool2d() {
   }
 }
 
+namespace {
+bool params_equal(Module &a, Module &b) {
+  std::vector<Tensor *> pa = a.parameters(), pb = b.parameters();
+  if (pa.size() != pb.size())
+    return false;
+  for (size_t i = 0; i < pa.size(); i++)
+    if (pa[i]->shape != pb[i]->shape || pa[i]->data != pb[i]->data)
+      return false;
+  return true;
+}
+
+std::vector<std::vector<float>> snapshot(Module &m) {
+  std::vector<std::vector<float>> s;
+  for (Tensor *p : m.parameters())
+    s.push_back(p->data);
+  return s;
+}
+
+void randomize_all(Module &m) {
+  for (Tensor *p : m.parameters())
+    p->randomize();
+}
+} // namespace
+
+bool test_checkpoint_roundtrip() {
+  Sequential net_a({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_b({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  randomize_all(net_a);
+  randomize_all(net_b);
+  if (params_equal(net_a, net_b))
+    return false; // otherwise the test proves nothing
+
+  std::stringstream buf;
+  net_a.save(buf);
+  net_b.load(buf);
+  return params_equal(net_a, net_b);
+}
+
+bool test_checkpoint_mismatch() {
+  Sequential net_a({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_b({new Linear(10, 10), new Relu(),
+                    new Linear(10, 5)}); // last layer differs
+  randomize_all(net_b);
+  auto before = snapshot(net_b);
+
+  std::stringstream buf;
+  net_a.save(buf);
+  try {
+    net_b.load(buf);
+    return false; // should have thrown
+  } catch (const std::runtime_error &) {
+  }
+  return snapshot(net_b) == before; // strong guarantee: untouched
+}
+
+bool test_checkpoint_truncated() {
+  Sequential net_a({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_b({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  randomize_all(net_b);
+  auto before = snapshot(net_b);
+
+  std::stringstream buf;
+  net_a.save(buf);
+  std::string bytes = buf.str();
+  std::stringstream cut(
+      bytes.substr(0, bytes.size() - 8)); // drop the last two floats
+
+  try {
+    net_b.load(cut);
+    return false;
+  } catch (const std::runtime_error &) {
+  }
+  return snapshot(net_b) == before;
+}
+
+namespace {
+void set_grads(Module &m, std::mt19937 &rng) {
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (Tensor *p : m.parameters())
+    for (float &gv : p->grad)
+      gv = dist(rng);
+}
+
+void take_steps(Module &m, Optimizer &opt, std::mt19937 &rng, int n) {
+  for (int i = 0; i < n; i++) {
+    set_grads(m, rng);
+    opt.step();
+  }
+}
+} // namespace
+
+bool test_optimizer_state_roundtrip() {
+  Sequential net_a({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_b({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_c({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  randomize_all(net_a);
+
+  SGDMomentum opt_a(net_a.parameters(), 0.01f, 0.9f);
+  SGDMomentum opt_b(net_b.parameters(), 0.01f, 0.9f);
+  SGDMomentum opt_c(net_c.parameters(), 0.01f, 0.9f);
+
+  // Build up non-zero velocity in opt_a.
+  std::mt19937 rng(3);
+  take_steps(net_a, opt_a, rng, 5);
+
+  // One stream, model then optimizer: the layout a real checkpoint uses.
+  std::stringstream buf;
+  net_a.save(buf);
+  opt_a.save_state(buf);
+  net_b.load(buf);
+  opt_b.load_state(buf);
+
+  // Control: same weights as a, but a fresh optimizer with zero velocity.
+  std::stringstream model_only;
+  net_a.save(model_only);
+  net_c.load(model_only);
+
+  // Identical gradients for all three, then one more step each.
+  std::mt19937 ra(11), rb(11), rc(11);
+  take_steps(net_a, opt_a, ra, 1);
+  take_steps(net_b, opt_b, rb, 1);
+  take_steps(net_c, opt_c, rc, 1);
+
+  // b must match a exactly. c must NOT match, or velocity isn't being tested.
+  return params_equal(net_a, net_b) && !params_equal(net_a, net_c);
+}
+
+bool test_optimizer_state_mismatch() {
+  Sequential net_a({new Linear(10, 10), new Relu(), new Linear(10, 4)});
+  Sequential net_b({new Linear(10, 10), new Relu(), new Linear(10, 5)});
+  SGDMomentum opt_a(net_a.parameters(), 0.01f, 0.9f);
+  SGDMomentum opt_b(net_b.parameters(), 0.01f, 0.9f);
+
+  std::stringstream buf;
+  opt_a.save_state(buf);
+  try {
+    opt_b.load_state(buf);
+    return false; // should have thrown
+  } catch (const std::runtime_error &) {
+  }
+  return true;
+}
+
+void test_checkpoint() {
+  auto report = [](const char *name, bool ok) {
+    std::cout << name << ": " << (ok ? "PASSED" : "FAILED") << "\n";
+  };
+  report("checkpoint roundtrip", test_checkpoint_roundtrip());
+  report("checkpoint mismatch throws, target unchanged",
+         test_checkpoint_mismatch());
+  report("checkpoint truncated throws, target unchanged",
+         test_checkpoint_truncated());
+  report("optimizer state roundtrip", test_optimizer_state_roundtrip());
+  report("optimizer state mismatch throws", test_optimizer_state_mismatch());
+}
+
 int main() {
   test_ops(); // add, matmul, transpose, add_bias
   test_conv2d();
@@ -602,6 +764,7 @@ int main() {
   test_losses();      // mse, softmax_cross_entropy
   test_layers();      // Linear
   test_mnist();
+  test_checkpoint();
 
   return 0;
 }

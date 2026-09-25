@@ -4,6 +4,8 @@
 #include "ops.hpp"
 #include "tensor.hpp"
 #include <csignal>
+#include <istream>
+#include <ostream>
 #include <vector>
 
 namespace deeplib {
@@ -13,6 +15,11 @@ public:
   virtual Tensor *forward(Graph *g, Tensor *x) = 0;
   virtual std::vector<Tensor *> parameters() = 0;
   virtual ~Module() = default;
+
+  void save(std::ostream &f);
+  void save(const std::string &path);
+  void load(std::istream &f);
+  void load(const std::string &path);
 };
 
 class Linear : public Module {
