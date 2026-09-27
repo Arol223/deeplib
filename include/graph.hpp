@@ -7,7 +7,8 @@ namespace deeplib {
 
 class Graph {
 public:
-  Tensor *make(std::vector<int> shape, bool requires_grad = false);
+  Tensor *make(std::vector<int> shape, bool requires_grad = false,
+               bool zero_data = true);
   ~Graph();
   void reset() { next = 0; }
   void clear();

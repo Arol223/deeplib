@@ -1,5 +1,6 @@
 #include "ops.hpp"
 #include "graph.hpp"
+#include "parallel.hpp"
 #include "tensor.hpp"
 #include "utils.hpp"
 #include <Eigen/Dense>
@@ -15,7 +16,7 @@ namespace deeplib {
 Tensor *add(Graph *g, Tensor *a, Tensor *b) {
   assert(a->shape == b->shape);
   bool requires_grad = a->requires_grad || b->requires_grad;
-  Tensor *out = g->make(a->shape, requires_grad);
+  Tensor *out = g->make(a->shape, requires_grad, false);
 
   const size_t n = a->data.size();
   for (size_t i = 0; i < n; i++) {
@@ -35,7 +36,7 @@ Tensor *add(Graph *g, Tensor *a, Tensor *b) {
 Tensor *sub(Graph *g, Tensor *a, Tensor *b) {
   assert(a->shape == b->shape);
   bool requires_grad = a->requires_grad || b->requires_grad;
-  Tensor *out = g->make(a->shape, requires_grad);
+  Tensor *out = g->make(a->shape, requires_grad, false);
 
   const size_t n = a->data.size();
 
@@ -56,7 +57,7 @@ Tensor *sub(Graph *g, Tensor *a, Tensor *b) {
 Tensor *mul(Graph *g, Tensor *a, Tensor *b) {
   assert(a->shape == b->shape);
   bool requires_grad = a->requires_grad || b->requires_grad;
-  Tensor *out = g->make(a->shape, requires_grad);
+  Tensor *out = g->make(a->shape, requires_grad, false);
 
   const size_t n = a->data.size();
 
@@ -77,7 +78,7 @@ Tensor *mul(Graph *g, Tensor *a, Tensor *b) {
 
 Tensor *mul_scalar(Graph *g, Tensor *a, float s) {
   bool requires_grad = a->requires_grad;
-  Tensor *out = g->make(a->shape, requires_grad);
+  Tensor *out = g->make(a->shape, requires_grad, false);
 
   const size_t n = a->data.size();
 
@@ -103,7 +104,7 @@ Tensor *matmul(Graph *g, Tensor *a, Tensor *b, bool eigen) {
   const int out_row = a->shape[0];
   const int inner = a->shape[1];
 
-  Tensor *out = g->make({a->shape[0], b->shape[1]}, requires_grad);
+  Tensor *out = g->make({a->shape[0], b->shape[1]}, requires_grad, !eigen);
   if (!eigen) {
     for (int i = 0; i < out_row; i++) {
       float *__restrict out_row = out->data.data() + i * out->strides[0];
@@ -184,7 +185,7 @@ Tensor *transpose(Graph *g, Tensor *a) {
   int out_rows = a->shape[1];
   int out_cols = a->shape[0];
 
-  Tensor *out = g->make({out_rows, out_cols}, requires_grad);
+  Tensor *out = g->make({out_rows, out_cols}, requires_grad, false);
   for (int i = 0; i < out_rows; i++) {
     for (int j = 0; j < out_cols; j++) {
       out->at(i, j) = a->at(j, i);
@@ -222,7 +223,7 @@ Tensor *add_bias(Graph *g, Tensor *x, Tensor *b) {
   assert(x->shape.size() == 2);
   assert(b->shape.size() == 1);
   assert(x->shape[1] == b->shape[0]);
-  Tensor *out = g->make(x->shape, b->requires_grad || x->requires_grad);
+  Tensor *out = g->make(x->shape, b->requires_grad || x->requires_grad, false);
 
   // forward pass
   for (int i = 0; i < x->shape[0]; i++) {
@@ -332,7 +333,7 @@ Tensor *conv2d(Graph *g, Tensor *x, Tensor *k, int stride, int padding) {
 
 Tensor *add_channel_bias(Graph *g, Tensor *x, Tensor *b) {
   assert(x->shape[1] == b->shape[0]);
-  Tensor *out = g->make(x->shape);
+  Tensor *out = g->make(x->shape, x->requires_grad || b->requires_grad, false);
 
   int bs = x->shape[0];
   int channels = x->shape[1];
@@ -340,31 +341,35 @@ Tensor *add_channel_bias(Graph *g, Tensor *x, Tensor *b) {
   int W = x->shape[3];
 
   // Forward pass
-  for (int n = 0; n < bs; n++) {
-    for (int c = 0; c < channels; c++) {
-      for (int i = 0; i < H; i++) {
-        float bc = b->data[c];
-        for (int j = 0; j < W; j++) {
-          out->at(n, c, i, j) = x->at(n, c, i, j) + bc;
+  parallel_for(0, bs, [&](int lo, int hi) {
+    for (int n = lo; n < hi; n++) {
+      for (int c = 0; c < channels; c++) {
+        for (int i = 0; i < H; i++) {
+          float bc = b->data[c];
+          for (int j = 0; j < W; j++) {
+            out->at(n, c, i, j) = x->at(n, c, i, j) + bc;
+          }
         }
       }
     }
-  }
+  });
 
   out->parents = {x, b};
   out->backward_fn = [x, b, out, bs, channels, H, W]() {
-    for (int n = 0; n < bs; n++) {
-      for (int c = 0; c < channels; c++) {
-        float b_grad = 0.0f;
-        for (int i = 0; i < H; i++) {
-          for (int j = 0; j < W; j++) {
-            b_grad += out->grad_at(n, c, i, j);
-            x->grad_at(n, c, i, j) += out->grad_at(n, c, i, j);
+    parallel_for(0, channels, [&](int c_lo, int c_hi) {
+      for (int c = c_lo; c < c_hi; c++) {
+        for (int n = 0; n < bs; n++) {
+          float b_grad = 0.0f;
+          for (int i = 0; i < H; i++) {
+            for (int j = 0; j < W; j++) {
+              b_grad += out->grad_at(n, c, i, j);
+              x->grad_at(n, c, i, j) += out->grad_at(n, c, i, j);
+            }
           }
+          b->grad[c] += b_grad;
         }
-        b->grad[c] += b_grad;
       }
-    }
+    });
   };
   return out;
 }
@@ -382,30 +387,11 @@ Tensor *im2col(Graph *g, Tensor *x, int Kh, int Kw, int stride, int padding) {
   int Ow = (W + 2 * padding - Kw) / stride + 1;
   int C_in = x->shape[1];
 
-  Tensor *out = g->make({bs * Oh * Ow, C_in * Kh * Kw}, x->requires_grad);
-  for (int n = 0; n < bs; n++) {
-    for (int i = 0; i < Oh; i++) {
-      for (int j = 0; j < Ow; j++) {
-        int r = n * Oh * Ow + i * Ow + j;
-        for (int c = 0; c < C_in; c++) {
-          for (int u = 0; u < Kh; u++) {
-            int hi = stride * i + u - padding;
-            for (int v = 0; v < Kw; v++) {
-              int wi = stride * j + v - padding;
-              int q = c * Kh * Kw + u * Kw + v;
-              out->at(r, q) = (hi < 0 || hi >= H || wi < 0 || wi >= W)
-                                  ? 0.0f
-                                  : x->at(n, c, hi, wi);
-            }
-          }
-        }
-      }
-    }
-  }
-  out->parents = {x};
-  out->backward_fn = [x, out, Kh, Kw, stride, padding, bs, Oh, Ow, C_in, H,
-                      W]() {
-    for (int n = 0; n < bs; n++) {
+  Tensor *out =
+      g->make({bs * Oh * Ow, C_in * Kh * Kw}, x->requires_grad, false);
+
+  parallel_for(0, bs, [&](int n_lo, int n_hi) {
+    for (int n = n_lo; n < n_hi; n++) {
       for (int i = 0; i < Oh; i++) {
         for (int j = 0; j < Ow; j++) {
           int r = n * Oh * Ow + i * Ow + j;
@@ -415,22 +401,47 @@ Tensor *im2col(Graph *g, Tensor *x, int Kh, int Kw, int stride, int padding) {
               for (int v = 0; v < Kw; v++) {
                 int wi = stride * j + v - padding;
                 int q = c * Kh * Kw + u * Kw + v;
-                if (hi < 0 || hi >= H || wi < 0 || wi >= W)
-                  continue;
-                x->grad_at(n, c, hi, wi) += out->grad_at(r, q);
+                out->at(r, q) = (hi < 0 || hi >= H || wi < 0 || wi >= W)
+                                    ? 0.0f
+                                    : x->at(n, c, hi, wi);
               }
             }
           }
         }
       }
     }
+  });
+  out->parents = {x};
+  out->backward_fn = [x, out, Kh, Kw, stride, padding, bs, Oh, Ow, C_in, H,
+                      W]() {
+    parallel_for(0, bs, [&](int n_lo, int n_hi) {
+      for (int n = n_lo; n < n_hi; n++) {
+        for (int i = 0; i < Oh; i++) {
+          for (int j = 0; j < Ow; j++) {
+            int r = n * Oh * Ow + i * Ow + j;
+            for (int c = 0; c < C_in; c++) {
+              for (int u = 0; u < Kh; u++) {
+                int hi = stride * i + u - padding;
+                for (int v = 0; v < Kw; v++) {
+                  int wi = stride * j + v - padding;
+                  int q = c * Kh * Kw + u * Kw + v;
+                  if (hi < 0 || hi >= H || wi < 0 || wi >= W)
+                    continue;
+                  x->grad_at(n, c, hi, wi) += out->grad_at(r, q);
+                }
+              }
+            }
+          }
+        }
+      }
+    });
   };
   return out;
 }
 
 Tensor *reshape_op(Graph *g, Tensor *x, const std::vector<int> &new_shape) {
   assert(x->size() == product(new_shape));
-  Tensor *out = g->make(new_shape, x->requires_grad);
+  Tensor *out = g->make(new_shape, x->requires_grad, false);
 
   // forward pass
   std::copy(x->data.begin(), x->data.end(), out->data.begin());
@@ -451,28 +462,31 @@ Tensor *permute_nhwc_to_nchw(Graph *g, Tensor *x) {
 
   int N = x->shape[0], H = x->shape[1], W = x->shape[2], C = x->shape[3];
 
-  Tensor *out = g->make({N, C, H, W}, x->requires_grad);
-
-  for (int n = 0; n < N; n++) {
-    for (int h = 0; h < H; h++) {
-      for (int w = 0; w < W; w++) {
-        for (int c = 0; c < C; c++) {
-          out->at(n, c, h, w) = x->at(n, h, w, c);
-        }
-      }
-    }
-  }
-  out->parents = {x};
-  out->backward_fn = [x, out, N, C, H, W]() {
-    for (int n = 0; n < N; n++) {
+  Tensor *out = g->make({N, C, H, W}, x->requires_grad, false);
+  parallel_for(0, N, [&](int n_lo, int n_hi) {
+    for (int n = n_lo; n < n_hi; n++) {
       for (int h = 0; h < H; h++) {
         for (int w = 0; w < W; w++) {
           for (int c = 0; c < C; c++) {
-            x->grad_at(n, h, w, c) += out->grad_at(n, c, h, w);
+            out->at(n, c, h, w) = x->at(n, h, w, c);
           }
         }
       }
     }
+  });
+  out->parents = {x};
+  out->backward_fn = [x, out, N, C, H, W]() {
+    parallel_for(0, N, [&](int n_lo, int n_hi) {
+      for (int n = n_lo; n < n_hi; n++) {
+        for (int h = 0; h < H; h++) {
+          for (int w = 0; w < W; w++) {
+            for (int c = 0; c < C; c++) {
+              x->grad_at(n, h, w, c) += out->grad_at(n, c, h, w);
+            }
+          }
+        }
+      }
+    });
   };
   return out;
 }
@@ -506,39 +520,44 @@ Tensor *maxpool2d(Graph *g, Tensor *x, int Kh, int Kw, int stride) {
   int Oh = (H - Kh) / stride + 1;
   int Ow = (W - Kw) / stride + 1;
 
-  Tensor *out = g->make({N, C, Oh, Ow}, x->requires_grad);
+  Tensor *out = g->make({N, C, Oh, Ow}, x->requires_grad, false);
   std::vector<int> argmax(out->size());
-  for (int n = 0; n < N; n++) {
-    for (int c = 0; c < C; c++) {
-      for (int i = 0; i < Oh; i++) {
-        for (int j = 0; j < Ow; j++) {
-          float running_max = -std::numeric_limits<float>::infinity();
-          int amax; // local argmax
-          for (int u = 0; u < Kh; u++) {
-            int hi = stride * i + u;
-            for (int v = 0; v < Kw; v++) {
-              int wi = stride * j + v;
-              float p = x->at(n, c, hi, wi);
-              if (p > running_max) {
-                running_max = p;
-                amax = n * x->strides[0] + c * x->strides[1] +
-                       hi * x->strides[2] + wi * x->strides[3];
-                int out_idx = n * out->strides[0] + c * out->strides[1] +
-                              i * out->strides[2] + j * out->strides[3];
-                out->data[out_idx] = running_max;
-                argmax[out_idx] = amax;
+  parallel_for(0, N, [&](int n_lo, int n_hi) {
+    for (int n = n_lo; n < n_hi; n++) {
+      for (int c = 0; c < C; c++) {
+        for (int i = 0; i < Oh; i++) {
+          for (int j = 0; j < Ow; j++) {
+            float running_max = -std::numeric_limits<float>::infinity();
+            int amax; // local argmax
+            for (int u = 0; u < Kh; u++) {
+              int hi = stride * i + u;
+              for (int v = 0; v < Kw; v++) {
+                int wi = stride * j + v;
+                float p = x->at(n, c, hi, wi);
+                if (p > running_max) {
+                  running_max = p;
+                  amax = n * x->strides[0] + c * x->strides[1] +
+                         hi * x->strides[2] + wi * x->strides[3];
+                  int out_idx = n * out->strides[0] + c * out->strides[1] +
+                                i * out->strides[2] + j * out->strides[3];
+                  out->data[out_idx] = running_max;
+                  argmax[out_idx] = amax;
+                }
               }
             }
           }
         }
       }
     }
-  }
+  });
+  const int per_sample = C * Oh * Ow;
   out->parents = {x};
-  out->backward_fn = [x, out, argmax]() {
-    for (size_t idx = 0; idx < argmax.size(); idx++) {
-      x->grad[argmax[idx]] += out->grad[idx];
-    }
+  out->backward_fn = [x, out, per_sample, N, argmax = std::move(argmax)]() {
+    parallel_for(0, N, [&](int n_lo, int n_hi) {
+      for (int idx = n_lo * per_sample; idx < n_hi * per_sample; idx++) {
+        x->grad[argmax[idx]] += out->grad[idx];
+      }
+    });
   };
   return out;
 }

@@ -217,7 +217,7 @@ void train_cifar10() {
   standardize(test, mean, std_dev, false);
 
   const int batch_size = 64;
-  const int n_batches = 100; // train.n / batch_size;
+  const int n_batches = train.n / batch_size;
 
   Sequential net({new Conv2d(3, 32, 3, 3, 1, 1), // 32x32 -> 32x32 -> 16x16
                   new Relu(), new MaxPool2d(2, 2, 2),
@@ -260,7 +260,7 @@ void train_cifar10() {
   std::iota(order.begin(), order.end(), 0);
   std::mt19937 rng(0);
 
-  for (int epoch = 0; epoch < 1; epoch++) {
+  for (int epoch = 0; epoch < 20; epoch++) {
     std::shuffle(order.begin(), order.end(), rng);
     float epoch_loss = 0.0f;
     auto t0 = std::chrono::steady_clock::now();
