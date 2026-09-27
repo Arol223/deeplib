@@ -6,3 +6,4 @@ deeplib
 run_tests
 data/
 perf*
+run_tests_tsan
